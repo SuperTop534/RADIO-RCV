@@ -53,8 +53,26 @@ if (state.videos.length === 0 && previousUrl) {
   }
 }
 
+// Diagnóstico gravado junto (o registro do GitHub Actions nem sempre é fácil de abrir)
+const diagnostics: Record<string, string> = { at: new Date().toISOString(), apiKey: env('YOUTUBE_API_KEY') ? 'configurada' : 'ausente' };
+if (state.videosSource === 'none' || state.liveCheck === 'error') {
+  const channelId = env('YOUTUBE_CHANNEL_ID', 'UCUhM7X3log3z56SWCoEWgSg');
+  const ua = { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36', 'Accept-Language': 'pt-BR,pt;q=0.9' };
+  try {
+    const r = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`, { headers: ua });
+    diagnostics.feed = `HTTP ${r.status}`;
+  } catch (e) { diagnostics.feed = `erro: ${(e as Error).message}`; }
+  try {
+    const r = await fetch('https://www.youtube.com/@rcvestudioradio4570', { headers: ua });
+    const html = await r.text();
+    diagnostics.handlePage = `HTTP ${r.status}`;
+    diagnostics.handleChannelId = /"(?:externalId|channelId)":"(UC[\w-]{22})"/.exec(html)?.[1] ?? 'não encontrado';
+  } catch (e) { diagnostics.handlePage = `erro: ${(e as Error).message}`; }
+}
+
 fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
-fs.writeFileSync(out, JSON.stringify(state));
+fs.writeFileSync(out, JSON.stringify({ ...state, diagnostics }));
+console.log('[robô] diagnóstico:', diagnostics);
 console.log(JSON.stringify({
   arquivo: out,
   verificacaoCompleta: full,
