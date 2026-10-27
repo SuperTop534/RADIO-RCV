@@ -72,6 +72,7 @@ if (state.videosSource === 'none' || state.liveCheck === 'error') {
 
 fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
 fs.writeFileSync(out, JSON.stringify({ ...state, diagnostics }));
+fs.writeFileSync(path.join(path.dirname(path.resolve(out)), 'diagnostico.json'), JSON.stringify({ ...diagnostics, videos: state.videos.length, fonte: state.videosSource, live: state.liveCheck }, null, 2));
 console.log('[robô] diagnóstico:', diagnostics);
 console.log(JSON.stringify({
   arquivo: out,
