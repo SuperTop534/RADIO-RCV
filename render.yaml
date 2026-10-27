@@ -1,0 +1,28 @@
+# Blueprint do Render (render.com). Plano pago "starter" recomendado:
+# no plano gratuito o servidor dorme e a verificação das 18h00 não roda sozinha
+# (use então o gatilho externo /api/youtube/check — veja o README).
+services:
+  - type: web
+    name: rcv-estudio-radio
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
+      - key: WEBSUB_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: YOUTUBE_CHANNEL_ID
+        value: UCUhM7X3log3z56SWCoEWgSg
+      - key: TIMEZONE
+        value: America/Sao_Paulo
+      - key: LIVE_DAILY_CHECK_TIME
+        value: "18:00"

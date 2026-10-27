@@ -1,0 +1,32 @@
+{
+  "name": "rcv-estudio-radio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "App/site oficial da RCV Estúdio Rádio — rádio ao vivo, vídeos do YouTube e CHAT RCV.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "build:static": "node scripts/build.mjs --static",
+    "youtube": "node --import tsx scripts/fetch-youtube.ts dist/youtube.json",
+    "start": "node dist-server/index.js",
+    "check:live": "node dist-server/jobs/checkNow.js",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.6.0"
+  }
+}

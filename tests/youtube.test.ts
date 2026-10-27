@@ -1,0 +1,114 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { YouTubeMonitor, parseChannelFeed, uploadsPlaylistId, type FetchLike } from '../server/services/youtube.ts';
+
+const CH = 'UCUhM7X3log3z56SWCoEWgSg';
+
+const FEED = `<?xml version="1.0"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/">
+  <entry><yt:videoId>vid1</yt:videoId><title>Programa &amp; Música — Ep. 1</title><published>2026-10-20T22:00:00+00:00</published>
+    <media:group><media:thumbnail url="https://i.ytimg.com/vi/vid1/hqdefault.jpg" width="480" height="360"/></media:group></entry>
+  <entry><yt:videoId>vid2</yt:videoId><title>Ao vivo de sábado</title><published>2026-10-18T22:00:00+00:00</published></entry>
+</feed>`;
+
+function res(status: number, body: unknown) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  return { ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text) };
+}
+
+function makeMonitor(apiKey: string, fetch: FetchLike) {
+  return new YouTubeMonitor({
+    apiKey, channelId: CH, channelUrl: 'https://www.youtube.com/@rcvestudioradio4570',
+    maxVideos: 12, clientPollSeconds: 60, livePollMinutes: 10,
+    fetch, nextDailyCheck: () => new Date('2026-10-28T21:00:00Z'), log: () => {},
+  });
+}
+
+test('lê o feed público do canal', () => {
+  const v = parseChannelFeed(FEED, 10);
+  assert.equal(v.length, 2);
+  assert.equal(v[0].title, 'Programa & Música — Ep. 1');
+  assert.equal(v[0].url, 'https://www.youtube.com/watch?v=vid1');
+  assert.equal(v[1].thumbnail, 'https://i.ytimg.com/vi/vid2/hqdefault.jpg');
+  assert.equal(v[0].embeddable, null);
+});
+
+test('playlist de uploads derivada do ID do canal', () => {
+  assert.equal(uploadsPlaylistId(CH), 'UUUhM7X3log3z56SWCoEWgSg');
+});
+
+test('sem chave da API: mostra vídeos e NÃO inventa live', async () => {
+  const yt = makeMonitor('', async (url) => {
+    assert.ok(url.includes('feeds/videos.xml'), 'sem chave só usa o feed público');
+    return res(200, FEED);
+  });
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.liveCheck, 'unconfigured');
+  assert.equal(s.live, null);
+  assert.equal(s.videos.length, 2);
+  assert.equal(s.videosSource, 'rss');
+});
+
+test('com chave: live ativa vira destaque e sai da lista de vídeos', async () => {
+  const calls: string[] = [];
+  const yt = makeMonitor('KEY', async (url) => {
+    calls.push(url);
+    if (url.includes('/playlistItems')) return res(200, { items: [{ contentDetails: { videoId: 'live1' } }, { contentDetails: { videoId: 'old1' } }, { contentDetails: { videoId: 'next1' } }] });
+    if (url.includes('/search')) return res(200, { items: [{ id: { videoId: 'live1' } }] });
+    if (url.includes('/videos')) return res(200, { items: [
+      { id: 'live1', snippet: { title: 'RCV AO VIVO', publishedAt: '2026-10-27T21:00:00Z', liveBroadcastContent: 'live', thumbnails: { high: { url: 'https://i.ytimg.com/vi/live1/hq.jpg' } } },
+        liveStreamingDetails: { actualStartTime: '2026-10-27T21:02:00Z', concurrentViewers: '57' }, status: { embeddable: true, privacyStatus: 'public' } },
+      { id: 'old1', snippet: { title: 'Vídeo antigo', publishedAt: '2026-10-01T10:00:00Z', liveBroadcastContent: 'none' }, status: { embeddable: false, privacyStatus: 'public' } },
+      { id: 'next1', snippet: { title: 'Agendada', publishedAt: '2026-10-26T10:00:00Z', liveBroadcastContent: 'upcoming' }, status: { embeddable: true, privacyStatus: 'public' } },
+    ] });
+    throw new Error('URL inesperada ' + url);
+  });
+  const s = await yt.refresh({ full: true, force: true });
+  assert.equal(s.liveCheck, 'ok');
+  assert.equal(s.live?.id, 'live1');
+  assert.equal(s.live?.concurrentViewers, 57);
+  assert.deepEqual(s.videos.map((v) => v.id), ['old1']);
+  assert.equal(s.videos[0].embeddable, false);
+  assert.ok(calls.every((u) => !u.includes('key=') || u.includes('key=KEY')));
+  assert.ok(calls.some((u) => u.includes('eventType=live')), 'verificação completa usa search.list');
+});
+
+test('verificação periódica (barata) não usa search.list', async () => {
+  const calls: string[] = [];
+  const yt = makeMonitor('KEY', async (url) => {
+    calls.push(url);
+    if (url.includes('/playlistItems')) return res(200, { items: [] });
+    if (url.includes('/videos')) return res(200, { items: [] });
+    return res(500, {});
+  });
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.live, null);
+  assert.equal(s.liveCheck, 'ok');
+  assert.ok(!calls.some((u) => u.includes('/search')));
+});
+
+test('falha da API (cota): avisa, usa o feed e não inventa live', async () => {
+  const yt = makeMonitor('KEY', async (url) => {
+    if (url.includes('googleapis')) return res(403, { error: { errors: [{ reason: 'quotaExceeded' }] } });
+    return res(200, FEED);
+  });
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.liveCheck, 'error');
+  assert.equal(s.live, null);
+  assert.equal(s.videos.length, 2);
+  assert.match(s.message ?? '', /Limite diário/);
+});
+
+test('tudo fora do ar: não lança erro', async () => {
+  const yt = makeMonitor('', async () => { throw new Error('offline'); });
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.live, null);
+  assert.ok(s.message);
+});
+
+test('consultas simultâneas viram uma só', async () => {
+  let n = 0;
+  const yt = makeMonitor('', async () => { n++; await new Promise((r) => setTimeout(r, 20)); return res(200, FEED); });
+  await Promise.all([yt.refresh({ force: true }), yt.refresh({ force: true }), yt.ensureFresh(0)]);
+  assert.equal(n, 1);
+});

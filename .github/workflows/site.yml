@@ -1,0 +1,72 @@
+# Publica o site da RCV no GitHub Pages e mantém os vídeos/lives do YouTube atualizados.
+#
+# Quando roda:
+#   - sempre que você envia arquivos novos para o repositório (push na branch main)
+#   - a cada 10 minutos: confere se começou uma live e se há vídeo novo
+#   - todo dia às 18h00 (Brasília = 21h00 UTC): verificação completa de live
+#   - quando você clica em "Run workflow" na aba Actions (ex.: logo depois de abrir uma live)
+#
+# A chave do YouTube fica em Settings → Secrets and variables → Actions → YOUTUBE_API_KEY.
+
+name: Publicar site RCV
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+    - cron: '0 21 * * *'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+
+      - name: Testes
+        run: npm test
+
+      - name: Montar o site
+        run: npm run build:static
+
+      - name: Endereço do site
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Buscar vídeos e lives do YouTube
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          # verificação completa às 18h00, no push e no botão manual; a cada 10 min é a econômica
+          FULL_CHECK: ${{ github.event_name != 'schedule' || github.event.schedule == '0 21 * * *' }}
+        run: node --import tsx scripts/fetch-youtube.ts dist/youtube.json --previous "${{ steps.pages.outputs.base_url }}/youtube.json"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

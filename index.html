@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>RCV Estúdio Rádio — Ao vivo</title>
+    <meta name="description" content="Ouça a RCV Estúdio Rádio ao vivo, assista às transmissões e vídeos do canal e mande sua mensagem para a rádio pelo WhatsApp." />
+    <meta name="theme-color" content="#131419" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- PWA / iPhone -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="RCV Rádio" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="icons/favicon-64.png" />
+
+    <!-- Compartilhamento -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="RCV Estúdio Rádio — Ao vivo" />
+    <meta property="og:description" content="A sua playlist digital na internet. Ouça ao vivo, veja os vídeos e fale com a rádio." />
+    <meta property="og:image" content="icons/icon-512.png" />
+
+    <!-- Carregamento rápido -->
+    <link rel="preload" as="image" href="assets/logo-rcv-900.webp" type="image/webp" />
+    <link rel="preload" as="image" href="assets/espuma-acustica-sm.jpg" media="(max-width: 699px)" />
+    <link rel="preload" as="image" href="assets/espuma-acustica.jpg" media="(min-width: 700px)" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap" />
+    <!--CSS-->
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <p style="padding:24px;font-family:system-ui;color:#fff">
+        Ative o JavaScript para ouvir a RCV Estúdio Rádio.
+        <a style="color:#ff9147" href="https://stm12.voxhd.com.br:13010/stream//">Ouvir pelo link direto</a>
+      </p>
+    </noscript>
+    <!--JS-->
+  </body>
+</html>
