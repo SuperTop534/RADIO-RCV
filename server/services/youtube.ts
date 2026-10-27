@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { LiveInfo, VideoItem, YouTubeState, LiveCheckStatus } from '../../shared/types.ts';
+import { parseChannelPage, PAGE_HEADERS, type PageVideo } from './youtubePage.ts';
 
 /**
  * Consulta do canal do YouTube com proteção de cota.
@@ -198,11 +199,11 @@ export class YouTubeMonitor {
     return this.inflight;
   }
 
-  private async getText(url: string): Promise<string> {
+  private async getText(url: string, headers: Record<string, string> = { 'User-Agent': 'RCV-Estudio-Radio/1.0' }): Promise<string> {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     try {
-      const res = await this.opts.fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'RCV-Estudio-Radio/1.0' } });
+      const res = await this.opts.fetch(url, { signal: ctrl.signal, headers });
       const body = await res.text();
       if (!res.ok) {
         let reason = `HTTP ${res.status}`;
@@ -225,6 +226,35 @@ export class YouTubeMonitor {
     return parseChannelFeed(xml, this.opts.maxVideos);
   }
 
+  /**
+   * Lê as abas "Vídeos" e "Ao vivo" da página pública do canal (sem chave).
+   * Detecta a live em andamento e inclui as lives já encerradas na lista.
+   */
+  private async fetchFromPages(): Promise<{ videos: VideoItem[]; live: LiveInfo | null; liveChecked: boolean }> {
+    const base = `https://www.youtube.com/channel/${encodeURIComponent(this.opts.channelId)}`;
+    const now = this.opts.now();
+    const [vids, streams] = await Promise.allSettled([
+      this.getText(`${base}/videos`, PAGE_HEADERS).then((h) => parseChannelPage(h, now)),
+      this.getText(`${base}/streams`, PAGE_HEADERS).then((h) => parseChannelPage(h, now)),
+    ]);
+    const list: PageVideo[] = [
+      ...(streams.status === 'fulfilled' ? streams.value : []),
+      ...(vids.status === 'fulfilled' ? vids.value : []),
+    ];
+    if (vids.status === 'rejected' && streams.status === 'rejected') throw vids.reason;
+    const liveItem = list.find((v) => v.isLive) ?? null;
+    const seen = new Set<string>();
+    const videos = list
+      .filter((v) => !v.isLive && !v.isUpcoming && !seen.has(v.id) && seen.add(v.id))
+      .sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
+      .slice(0, this.opts.maxVideos)
+      .map(({ isLive: _l, isUpcoming: _u, ...v }) => v);
+    const live: LiveInfo | null = liveItem
+      ? { id: liveItem.id, title: liveItem.title, publishedAt: liveItem.publishedAt, thumbnail: liveItem.thumbnail, url: liveItem.url, embeddable: null, startedAt: null, concurrentViewers: null }
+      : null;
+    return { videos, live, liveChecked: streams.status === 'fulfilled' };
+  }
+
   private async doRefresh(full: boolean): Promise<YouTubeState> {
     const nowIso = this.opts.now().toISOString();
     const prev = this.state;
@@ -232,14 +262,32 @@ export class YouTubeMonitor {
 
     if (!this.opts.apiKey) {
       next = { ...prev, live: null, liveCheck: 'unconfigured' };
+      // 1) página do canal (vídeos + lives); 2) feed RSS como reserva
+      let page: Awaited<ReturnType<YouTubeMonitor['fetchFromPages']>> | null = null;
       try {
-        next.videos = await this.fetchRss();
-        next.videosSource = 'rss';
-        next.lastVideosAt = nowIso;
-        next.message = null;
+        page = await this.fetchFromPages();
       } catch (err) {
-        this.opts.log(`[youtube] feed RSS indisponível: ${(err as Error).message}`);
-        next.message = 'Não foi possível atualizar a lista de vídeos agora.';
+        this.opts.log(`[youtube] página do canal indisponível: ${(err as Error).message}`);
+      }
+      if (page && (page.videos.length || page.live)) {
+        next.videos = page.videos;
+        next.live = page.live;
+        next.liveCheck = page.liveChecked ? 'ok' : 'unconfigured';
+        next.videosSource = 'page';
+        next.lastVideosAt = nowIso;
+        next.lastLiveCheckAt = page.liveChecked ? nowIso : prev.lastLiveCheckAt;
+        next.message = null;
+      } else {
+        try {
+          next.videos = await this.fetchRss();
+          next.videosSource = 'rss';
+          next.lastVideosAt = nowIso;
+          next.message = null;
+        } catch (err) {
+          this.opts.log(`[youtube] feed RSS indisponível: ${(err as Error).message}`);
+          next.message = page ? null : 'Não foi possível atualizar a lista de vídeos agora.';
+          if (page) { next.videos = []; next.videosSource = 'page'; next.lastVideosAt = nowIso; }
+        }
       }
     } else {
       next = await this.refreshWithApi(full, prev, nowIso);
@@ -345,7 +393,10 @@ export class YouTubeMonitor {
         next.videosSource = 'rss';
         next.lastVideosAt = nowIso;
       } catch {
-        /* mantém a última lista conhecida */
+        try {
+          const page = await this.fetchFromPages();
+          if (page.videos.length) { next.videos = page.videos; next.videosSource = 'page'; next.lastVideosAt = nowIso; }
+        } catch { /* mantém a última lista conhecida */ }
       }
       return next;
     }

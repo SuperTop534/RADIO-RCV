@@ -37,11 +37,43 @@ test('playlist de uploads derivada do ID do canal', () => {
   assert.equal(uploadsPlaylistId(CH), 'UUUhM7X3log3z56SWCoEWgSg');
 });
 
-test('sem chave da API: mostra vídeos e NÃO inventa live', async () => {
+const pageHtml = (data: unknown) => `<html><script>var ytInitialData = ${JSON.stringify(data)};</script></html>`;
+const VIDEOS_PAGE = pageHtml({ contents: { tabs: [{ richGridRenderer: { contents: [
+  { richItemRenderer: { content: { videoRenderer: { videoId: 'v1aaaaaaaaa', title: { runs: [{ text: 'Programa "especial" {1}' }] }, publishedTimeText: { simpleText: 'há 2 dias' } } } } },
+  { richItemRenderer: { content: { lockupViewModel: { contentId: 'v2bbbbbbbbb', contentType: 'LOCKUP_CONTENT_TYPE_VIDEO',
+    metadata: { lockupMetadataViewModel: { title: { content: 'Entrevista no estúdio' },
+      metadata: { contentMetadataViewModel: { metadataRows: [{ metadataParts: [{ text: { content: '120 visualizações' } }, { text: { content: '3 weeks ago' } }] }] } } } } } } } },
+] } }] } });
+const STREAMS_PAGE = pageHtml({ items: [
+  { videoRenderer: { videoId: 'live1xxxxxx', title: { runs: [{ text: 'RCV AO VIVO' }] }, badges: [{ metadataBadgeRenderer: { style: 'BADGE_STYLE_TYPE_LIVE_NOW' } }] } },
+  { videoRenderer: { videoId: 'next1xxxxxx', title: { runs: [{ text: 'Agendada' }] }, upcomingEventData: { startTime: '1' } } },
+  { videoRenderer: { videoId: 'old1xxxxxxx', title: { runs: [{ text: 'Live de sábado' }] }, publishedTimeText: { simpleText: 'Transmitido há 5 dias' } } },
+] });
+
+test('sem chave: lê a página do canal, detecta a live e ordena do mais novo', async () => {
   const yt = makeMonitor('', async (url) => {
-    assert.ok(url.includes('feeds/videos.xml'), 'sem chave só usa o feed público');
-    return res(200, FEED);
+    if (url.endsWith('/streams')) return res(200, STREAMS_PAGE);
+    if (url.endsWith('/videos')) return res(200, VIDEOS_PAGE);
+    throw new Error('não deveria precisar do feed');
   });
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.videosSource, 'page');
+  assert.equal(s.liveCheck, 'ok');
+  assert.equal(s.live?.id, 'live1xxxxxx');
+  assert.deepEqual(s.videos.map((v) => v.id), ['v1aaaaaaaaa', 'old1xxxxxxx', 'v2bbbbbbbbb']);
+  assert.equal(s.videos[0].title, 'Programa "especial" {1}');
+  assert.ok(!s.videos.some((v) => v.id === 'next1xxxxxx'), 'live agendada não entra');
+});
+
+test('sem chave e sem live na página: live fica vazia', async () => {
+  const yt = makeMonitor('', async (url) => res(200, url.endsWith('/streams') ? pageHtml({}) : VIDEOS_PAGE));
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.live, null);
+  assert.equal(s.videos.length, 2);
+});
+
+test('página do canal fora do ar: usa o feed e NÃO inventa live', async () => {
+  const yt = makeMonitor('', async (url) => (url.includes('feeds/videos.xml') ? res(200, FEED) : res(500, 'erro')));
   const s = await yt.refresh({ force: true });
   assert.equal(s.liveCheck, 'unconfigured');
   assert.equal(s.live, null);
@@ -108,7 +140,7 @@ test('tudo fora do ar: não lança erro', async () => {
 
 test('consultas simultâneas viram uma só', async () => {
   let n = 0;
-  const yt = makeMonitor('', async () => { n++; await new Promise((r) => setTimeout(r, 20)); return res(200, FEED); });
+  const yt = makeMonitor('', async (url) => { n++; await new Promise((r) => setTimeout(r, 20)); return res(200, url.endsWith('/streams') ? STREAMS_PAGE : VIDEOS_PAGE); });
   await Promise.all([yt.refresh({ force: true }), yt.refresh({ force: true }), yt.ensureFresh(0)]);
-  assert.equal(n, 1);
+  assert.equal(n, 2, 'uma rodada = abas Vídeos + Ao vivo');
 });

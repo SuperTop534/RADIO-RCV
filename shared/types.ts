@@ -29,7 +29,7 @@ export interface YouTubeState {
   live: LiveInfo | null;
   liveCheck: LiveCheckStatus;
   videos: VideoItem[];
-  videosSource: 'api' | 'rss' | 'none';
+  videosSource: 'api' | 'rss' | 'page' | 'none';
   /** ISO da última verificação bem-sucedida de live (ou null) */
   lastLiveCheckAt: string | null;
   /** ISO da última atualização dos vídeos */
