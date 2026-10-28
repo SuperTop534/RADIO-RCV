@@ -74,6 +74,11 @@ fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
 fs.writeFileSync(out, JSON.stringify({ ...state, diagnostics }));
 fs.writeFileSync(path.join(path.dirname(path.resolve(out)), 'diagnostico.json'), JSON.stringify({ ...diagnostics, videos: state.videos.length, fonte: state.videosSource, live: state.liveCheck }, null, 2));
 console.log('[robô] diagnóstico:', diagnostics);
+// Resumo visível na página da execução do GitHub Actions (Annotations)
+if (process.env.GITHUB_ACTIONS) {
+  const resumo = `${state.videos.length} vídeos (fonte: ${state.videosSource}) | live: ${state.live ? `AO VIVO - ${state.live.title}` : 'nenhuma'} | verificação de live: ${state.liveCheck}`;
+  console.log(`::notice title=Robô do YouTube::${resumo.replace(/\r?\n/g, ' ')}`);
+}
 console.log(JSON.stringify({
   arquivo: out,
   verificacaoCompleta: full,
