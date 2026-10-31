@@ -760,19 +760,13 @@ a { color: inherit; }
 @media (min-width: 960px) { .tabbar { background: var(--glass-bg); } }
 .notice span strong { color: var(--ink); font-weight: 650; }
 
-/* ---------- Vídeos abaixo da rádio (tela inicial) ---------- */
-.home__videos { margin-top: 18px; min-width: 0; }
-.home__videos .section-head { margin-top: 0; }
+/* ---------- Atalhos e destaque de vídeos ---------- */
 .section-title--sm { font-size: clamp(24px, 6.4vw, 34px); }
 .quick__live { display: inline-flex; align-items: center; gap: 6px; color: #ff8a8a !important; font-weight: 750; letter-spacing: 0.04em; }
 .quick__live .livechip__dot { width: 7px; height: 7px; }
 .featured__actions:empty { display: none; }
 .featured__meta:last-child { margin-bottom: 0; }
-@media (min-width: 960px) {
-  .home__videos { grid-column: 1 / -1; margin-top: 48px; }
-  .home { min-height: 0; padding-top: 24px; }
-}
-/* evita que textos longos dos vídeos alarguem a tela inicial no celular */
+/* nenhum texto longo alarga a tela no celular */
 .home { grid-template-columns: minmax(0, 1fr); }
 .home > *, .videos, .featured, .vgrid > li { min-width: 0; }
 @media (min-width: 960px) { .home { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }

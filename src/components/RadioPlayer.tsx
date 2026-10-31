@@ -6,8 +6,6 @@ import { Equalizer } from './Equalizer.tsx';
 import { Logo3D } from './Logo3D.tsx';
 import { IconChat, IconPause, IconPlay, IconVideo } from './Icons.tsx';
 import type { Tab } from './BottomNavigation.tsx';
-import { VideosSection } from './VideosSection.tsx';
-import { ErrorBoundary } from './ErrorBoundary.tsx';
 import { useYouTube } from '../hooks/useStores.ts';
 
 export const isActiveStatus = (s: RadioSnapshot['status']) =>
@@ -45,7 +43,8 @@ export function PlayButton({ size = 'xl' }: { size?: 'xl' | 'sm' }) {
   );
 }
 
-export function RadioPlayer({ onNavigate, notify }: { onNavigate: (t: Tab) => void; notify: (msg: string) => void }) {
+/** Tela inicial: só a rádio. Vídeos e CHAT RCV ficam nas próprias abas (atalhos abaixo do player). */
+export function RadioPlayer({ onNavigate }: { onNavigate: (t: Tab) => void }) {
   const snap = useRadio();
   const liveNow = Boolean(useYouTube().data?.live);
   const secs = useCountdown(snap.status === 'reconnecting' ? snap.nextRetryAt : null);
@@ -117,13 +116,6 @@ export function RadioPlayer({ onNavigate, notify }: { onNavigate: (t: Tab) => vo
           <span className="quick__text"><strong>CHAT RCV</strong><small>Fale com a rádio</small></span>
         </button>
       </nav>
-
-      {/* Rolando para baixo: a live (quando houver) e os vídeos do canal, do mais novo ao mais antigo */}
-      <div className="home__videos">
-        <ErrorBoundary fallback="Não foi possível exibir os vídeos agora. A rádio continua funcionando.">
-          <VideosSection notify={notify} embedded />
-        </ErrorBoundary>
-      </div>
     </section>
   );
 }

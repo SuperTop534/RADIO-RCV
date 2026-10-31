@@ -74,7 +74,7 @@ export function App() {
 
         <main id="conteudo" ref={mainRef} tabIndex={-1} className={`main main--${tab}`}>
           <div key={tab} id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="panel">
-            {tab === 'inicio' && <RadioPlayer onNavigate={navigate} notify={notify} />}
+            {tab === 'inicio' && <RadioPlayer onNavigate={navigate} />}
             {tab === 'videos' && (
               <ErrorBoundary fallback="Não foi possível exibir os vídeos agora. O rádio e o CHAT RCV continuam funcionando.">
                 <VideosSection notify={notify} />
