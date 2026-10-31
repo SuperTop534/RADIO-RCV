@@ -12,7 +12,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { YouTubeMonitor } from '../server/services/youtube.ts';
+import { YouTubeMonitor, keepPrevious, mergeCatalogs } from '../server/services/youtube.ts';
 import { nextDailyOccurrence } from '../server/jobs/schedule.ts';
 import type { YouTubeState } from '../shared/types.ts';
 
@@ -38,15 +38,26 @@ const yt = new YouTubeMonitor({
 
 let state: YouTubeState = await yt.refresh({ full, force: true });
 
-// YouTube fora do ar: mantém a última lista publicada (nunca a live antiga)
-if (state.videos.length === 0 && previousUrl) {
+// Catálogo que veio vazio nesta rodada (o YouTube às vezes responde uma aba sem itens)
+// ou YouTube fora do ar: mantém a lista publicada anteriormente. A live nunca é reaproveitada.
+const emptyNow = !state.catalogs?.videos.length || !state.catalogs?.streams.length;
+if (emptyNow && previousUrl) {
   try {
-    const res = await fetch(previousUrl, { headers: { 'Cache-Control': 'no-cache' } });
+    const res = await fetch(`${previousUrl}?t=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache' } });
     if (res.ok) {
       const prev = (await res.json()) as YouTubeState;
-      if (Array.isArray(prev.videos) && prev.videos.length) {
-        state = { ...state, videos: prev.videos, catalogs: prev.catalogs, videosSource: prev.videosSource, lastVideosAt: prev.lastVideosAt };
-        console.log(`[robô] usando a lista anterior (${prev.videos.length} vídeos)`);
+      const prevCatalogs = prev.catalogs ?? (prev.videos?.length ? { videos: prev.videos, streams: [] } : undefined);
+      const now = state.catalogs ?? { videos: state.videos, streams: [] };
+      const merged = keepPrevious(now, prevCatalogs);
+      if (merged.videos.length !== now.videos.length || merged.streams.length !== now.streams.length) {
+        console.log(`[robô] catálogo vazio nesta rodada; mantendo o anterior (Vídeos ${now.videos.length}→${merged.videos.length}, Ao vivo ${now.streams.length}→${merged.streams.length})`);
+        state = {
+          ...state,
+          catalogs: merged,
+          videos: mergeCatalogs(merged, 50),
+          videosSource: state.videosSource === 'none' ? prev.videosSource : state.videosSource,
+          lastVideosAt: state.lastVideosAt ?? prev.lastVideosAt,
+        };
       }
     }
   } catch {

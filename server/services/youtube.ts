@@ -34,6 +34,17 @@ export interface YouTubeOptions {
 
 const API = 'https://www.googleapis.com/youtube/v3';
 
+/**
+ * Um catálogo que veio vazio nesta leitura mantém a lista anterior: o YouTube às vezes
+ * responde uma aba sem itens, e o site não pode "perder" os vídeos por isso.
+ */
+export function keepPrevious(now: Catalogs, prev?: Catalogs): Catalogs {
+  return {
+    videos: now.videos.length ? now.videos : (prev?.videos ?? []),
+    streams: now.streams.length ? now.streams : (prev?.streams ?? []),
+  };
+}
+
 /** Junta os dois catálogos numa lista só (do mais novo ao mais antigo), sem repetir. */
 export function mergeCatalogs(c: Catalogs, max: number): VideoItem[] {
   const seen = new Set<string>();
@@ -241,12 +252,25 @@ export class YouTubeMonitor {
    * uma transmissão pode aparecer em "Vídeos" e não só em "Ao vivo".
    */
   private async fetchFromPages(): Promise<{ videos: VideoItem[]; catalogs: Catalogs; live: LiveInfo | null; liveChecked: boolean }> {
-    const base = `https://www.youtube.com/channel/${encodeURIComponent(this.opts.channelId)}`;
     const now = this.opts.now();
-    const [vids, streams] = await Promise.allSettled([
-      this.getText(`${base}/videos`, PAGE_HEADERS).then((h) => parseChannelPage(h, now)),
-      this.getText(`${base}/streams`, PAGE_HEADERS).then((h) => parseChannelPage(h, now)),
-    ]);
+    const bases = [
+      `https://www.youtube.com/channel/${encodeURIComponent(this.opts.channelId)}`,
+      this.opts.channelUrl.replace(/\/+$/, ''), // endereço @ do canal, como segunda tentativa
+    ];
+    // O YouTube às vezes devolve uma aba sem itens (página "leve" ou de consentimento).
+    // Tenta de novo pelo outro endereço antes de considerar a aba vazia.
+    const readTab = async (tab: 'videos' | 'streams'): Promise<PageVideo[]> => {
+      let lastErr: unknown = null;
+      for (const base of bases) {
+        try {
+          const items = parseChannelPage(await this.getText(`${base}/${tab}?hl=pt-BR&gl=BR`, PAGE_HEADERS), now);
+          if (items.length) return items;
+        } catch (err) { lastErr = err; }
+      }
+      if (lastErr) throw lastErr;
+      return [];
+    };
+    const [vids, streams] = await Promise.allSettled([readTab('videos'), readTab('streams')]);
     if (vids.status === 'rejected' && streams.status === 'rejected') throw vids.reason;
     const videosTab = vids.status === 'fulfilled' ? vids.value : [];
     const streamsTab = streams.status === 'fulfilled' ? streams.value : [];
@@ -284,8 +308,8 @@ export class YouTubeMonitor {
         this.opts.log(`[youtube] página do canal indisponível: ${(err as Error).message}`);
       }
       if (page && (page.videos.length || page.live)) {
-        next.videos = page.videos;
-        next.catalogs = page.catalogs;
+        next.catalogs = keepPrevious(page.catalogs, prev.catalogs);
+        next.videos = mergeCatalogs(next.catalogs, this.opts.maxVideos);
         next.live = page.live;
         next.liveCheck = page.liveChecked ? 'ok' : 'unconfigured';
         next.videosSource = 'page';

@@ -52,8 +52,8 @@ const STREAMS_PAGE = pageHtml({ items: [
 
 test('sem chave: lê a página do canal, detecta a live e ordena do mais novo', async () => {
   const yt = makeMonitor('', async (url) => {
-    if (url.endsWith('/streams')) return res(200, STREAMS_PAGE);
-    if (url.endsWith('/videos')) return res(200, VIDEOS_PAGE);
+    if (url.includes('/streams')) return res(200, STREAMS_PAGE);
+    if (url.includes('/videos?')) return res(200, VIDEOS_PAGE);
     throw new Error('não deveria precisar do feed');
   });
   const s = await yt.refresh({ force: true });
@@ -66,7 +66,7 @@ test('sem chave: lê a página do canal, detecta a live e ordena do mais novo', 
 });
 
 test('catálogos separados: aba Vídeos e aba Ao vivo, cada uma na ordem do YouTube', async () => {
-  const yt = makeMonitor('', async (url) => res(200, url.endsWith('/streams') ? STREAMS_PAGE : VIDEOS_PAGE));
+  const yt = makeMonitor('', async (url) => res(200, url.includes('/streams') ? STREAMS_PAGE : VIDEOS_PAGE));
   const s = await yt.refresh({ force: true });
   assert.deepEqual(s.catalogs?.videos.map((v) => v.id), ['v1aaaaaaaaa', 'v2bbbbbbbbb']);
   assert.deepEqual(s.catalogs?.streams.map((v) => v.id), ['old1xxxxxxx'], 'sem a live atual e sem a agendada');
@@ -77,7 +77,7 @@ test('live que aparece só na aba Vídeos também vai para o topo', async () => 
     { videoRenderer: { videoId: 'livevid0001', title: { runs: [{ text: 'Culto ao vivo' }] }, badges: [{ metadataBadgeRenderer: { style: 'BADGE_STYLE_TYPE_LIVE_NOW' } }] } },
     { videoRenderer: { videoId: 'v1aaaaaaaaa', title: { runs: [{ text: 'Vídeo' }] }, publishedTimeText: { simpleText: 'há 1 dia' } } },
   ] });
-  const yt = makeMonitor('', async (url) => res(200, url.endsWith('/streams') ? pageHtml({}) : VIDEOS_WITH_LIVE));
+  const yt = makeMonitor('', async (url) => res(200, url.includes('/streams') ? pageHtml({}) : VIDEOS_WITH_LIVE));
   const s = await yt.refresh({ force: true });
   assert.equal(s.live?.id, 'livevid0001');
   assert.equal(s.liveCheck, 'ok');
@@ -85,7 +85,7 @@ test('live que aparece só na aba Vídeos também vai para o topo', async () => 
 });
 
 test('uma aba fora do ar: a outra aparece, mas a live não é dada como verificada', async () => {
-  const yt = makeMonitor('', async (url) => (url.endsWith('/streams') ? res(500, 'erro') : res(200, VIDEOS_PAGE)));
+  const yt = makeMonitor('', async (url) => (url.includes('/streams') ? res(500, 'erro') : res(200, VIDEOS_PAGE)));
   const s = await yt.refresh({ force: true });
   assert.equal(s.catalogs?.videos.length, 2);
   assert.equal(s.catalogs?.streams.length, 0);
@@ -93,7 +93,7 @@ test('uma aba fora do ar: a outra aparece, mas a live não é dada como verifica
 });
 
 test('sem chave e sem live na página: live fica vazia', async () => {
-  const yt = makeMonitor('', async (url) => res(200, url.endsWith('/streams') ? pageHtml({}) : VIDEOS_PAGE));
+  const yt = makeMonitor('', async (url) => res(200, url.includes('/streams') ? pageHtml({}) : VIDEOS_PAGE));
   const s = await yt.refresh({ force: true });
   assert.equal(s.live, null);
   assert.equal(s.videos.length, 2);
@@ -169,7 +169,7 @@ test('tudo fora do ar: não lança erro', async () => {
 
 test('consultas simultâneas viram uma só', async () => {
   let n = 0;
-  const yt = makeMonitor('', async (url) => { n++; await new Promise((r) => setTimeout(r, 20)); return res(200, url.endsWith('/streams') ? STREAMS_PAGE : VIDEOS_PAGE); });
+  const yt = makeMonitor('', async (url) => { n++; await new Promise((r) => setTimeout(r, 20)); return res(200, url.includes('/streams') ? STREAMS_PAGE : VIDEOS_PAGE); });
   await Promise.all([yt.refresh({ force: true }), yt.refresh({ force: true }), yt.ensureFresh(0)]);
   assert.equal(n, 2, 'uma rodada = abas Vídeos + Ao vivo');
 });
@@ -188,4 +188,28 @@ test('com chave: transmissão encerrada vai para "Ao vivo", vídeo comum para "V
   assert.deepEqual(s.catalogs?.streams.map((v) => v.id), ['past1']);
   assert.deepEqual(s.catalogs?.videos.map((v) => v.id), ['vid1']);
   assert.deepEqual(s.videos.map((v) => v.id), ['past1', 'vid1']);
+});
+
+test('aba Ao vivo vazia numa rodada: tenta de novo e, se continuar vazia, mantém a lista anterior', async () => {
+  let streamsCalls = 0;
+  let emptyStreams = false;
+  const yt = makeMonitor('', async (url) => {
+    if (url.includes('/streams')) { streamsCalls++; return res(200, emptyStreams ? pageHtml({}) : STREAMS_PAGE); }
+    return res(200, VIDEOS_PAGE);
+  });
+  const first = await yt.refresh({ force: true });
+  assert.deepEqual(first.catalogs?.streams.map((v) => v.id), ['old1xxxxxxx']);
+  emptyStreams = true;
+  streamsCalls = 0;
+  const second = await yt.refresh({ force: true });
+  assert.equal(streamsCalls, 2, 'tenta pelo ID do canal e pelo endereço @');
+  assert.deepEqual(second.catalogs?.streams.map((v) => v.id), ['old1xxxxxxx'], 'não apaga o catálogo Ao vivo');
+  assert.equal(second.catalogs?.videos.length, 2);
+});
+
+test('keepPrevious só substitui o catálogo que veio vazio', async () => {
+  const { keepPrevious } = await import('../server/services/youtube.ts');
+  const a = { id: 'a' } as any, b = { id: 'b' } as any, c = { id: 'c' } as any;
+  assert.deepEqual(keepPrevious({ videos: [a], streams: [] }, { videos: [b], streams: [c] }), { videos: [a], streams: [c] });
+  assert.deepEqual(keepPrevious({ videos: [], streams: [] }), { videos: [], streams: [] });
 });
