@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { LiveInfo, VideoItem, YouTubeState, LiveCheckStatus } from '../../shared/types.ts';
+import type { Catalogs, LiveInfo, VideoItem, YouTubeState, LiveCheckStatus } from '../../shared/types.ts';
 import { parseChannelPage, PAGE_HEADERS, type PageVideo } from './youtubePage.ts';
 
 /**
@@ -33,6 +33,15 @@ export interface YouTubeOptions {
 }
 
 const API = 'https://www.googleapis.com/youtube/v3';
+
+/** Junta os dois catálogos numa lista só (do mais novo ao mais antigo), sem repetir. */
+export function mergeCatalogs(c: Catalogs, max: number): VideoItem[] {
+  const seen = new Set<string>();
+  return [...c.streams, ...c.videos]
+    .filter((v) => !seen.has(v.id) && seen.add(v.id))
+    .sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
+    .slice(0, max);
+}
 const TIMEOUT_MS = 12_000;
 
 export const watchUrl = (id: string) => `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`;
@@ -228,31 +237,36 @@ export class YouTubeMonitor {
 
   /**
    * Lê as abas "Vídeos" e "Ao vivo" da página pública do canal (sem chave).
-   * Detecta a live em andamento e inclui as lives já encerradas na lista.
+   * Cada aba vira um catálogo próprio. A live em andamento é procurada nas DUAS abas:
+   * uma transmissão pode aparecer em "Vídeos" e não só em "Ao vivo".
    */
-  private async fetchFromPages(): Promise<{ videos: VideoItem[]; live: LiveInfo | null; liveChecked: boolean }> {
+  private async fetchFromPages(): Promise<{ videos: VideoItem[]; catalogs: Catalogs; live: LiveInfo | null; liveChecked: boolean }> {
     const base = `https://www.youtube.com/channel/${encodeURIComponent(this.opts.channelId)}`;
     const now = this.opts.now();
     const [vids, streams] = await Promise.allSettled([
       this.getText(`${base}/videos`, PAGE_HEADERS).then((h) => parseChannelPage(h, now)),
       this.getText(`${base}/streams`, PAGE_HEADERS).then((h) => parseChannelPage(h, now)),
     ]);
-    const list: PageVideo[] = [
-      ...(streams.status === 'fulfilled' ? streams.value : []),
-      ...(vids.status === 'fulfilled' ? vids.value : []),
-    ];
     if (vids.status === 'rejected' && streams.status === 'rejected') throw vids.reason;
-    const liveItem = list.find((v) => v.isLive) ?? null;
-    const seen = new Set<string>();
-    const videos = list
-      .filter((v) => !v.isLive && !v.isUpcoming && !seen.has(v.id) && seen.add(v.id))
-      .sort((a, b) => (b.publishedAt || '').localeCompare(a.publishedAt || ''))
-      .slice(0, this.opts.maxVideos)
-      .map(({ isLive: _l, isUpcoming: _u, ...v }) => v);
+    const videosTab = vids.status === 'fulfilled' ? vids.value : [];
+    const streamsTab = streams.status === 'fulfilled' ? streams.value : [];
+    const liveItem = streamsTab.find((v) => v.isLive) ?? videosTab.find((v) => v.isLive) ?? null;
+
+    // mantém a ordem do YouTube (mais novo primeiro); tira a live atual e as agendadas
+    const clean = (list: PageVideo[]) => {
+      const seen = new Set<string>();
+      return list
+        .filter((v) => !v.isLive && !v.isUpcoming && !seen.has(v.id) && seen.add(v.id))
+        .slice(0, this.opts.maxVideos)
+        .map(({ isLive: _l, isUpcoming: _u, ...v }) => v);
+    };
+    const catalogs: Catalogs = { videos: clean(videosTab), streams: clean(streamsTab) };
     const live: LiveInfo | null = liveItem
       ? { id: liveItem.id, title: liveItem.title, publishedAt: liveItem.publishedAt, thumbnail: liveItem.thumbnail, url: liveItem.url, embeddable: null, startedAt: null, concurrentViewers: null }
       : null;
-    return { videos, live, liveChecked: streams.status === 'fulfilled' };
+    // a live só é dada como verificada se as duas abas foram lidas
+    const liveChecked = vids.status === 'fulfilled' && streams.status === 'fulfilled';
+    return { videos: mergeCatalogs(catalogs, this.opts.maxVideos), catalogs, live, liveChecked };
   }
 
   private async doRefresh(full: boolean): Promise<YouTubeState> {
@@ -271,6 +285,7 @@ export class YouTubeMonitor {
       }
       if (page && (page.videos.length || page.live)) {
         next.videos = page.videos;
+        next.catalogs = page.catalogs;
         next.live = page.live;
         next.liveCheck = page.liveChecked ? 'ok' : 'unconfigured';
         next.videosSource = 'page';
@@ -280,13 +295,15 @@ export class YouTubeMonitor {
       } else {
         try {
           next.videos = await this.fetchRss();
+          // o feed não separa as abas: tudo vai para "Vídeos"
+          next.catalogs = { videos: next.videos, streams: [] };
           next.videosSource = 'rss';
           next.lastVideosAt = nowIso;
           next.message = null;
         } catch (err) {
           this.opts.log(`[youtube] feed RSS indisponível: ${(err as Error).message}`);
           next.message = page ? null : 'Não foi possível atualizar a lista de vídeos agora.';
-          if (page) { next.videos = []; next.videosSource = 'page'; next.lastVideosAt = nowIso; }
+          if (page) { next.videos = []; next.catalogs = { videos: [], streams: [] }; next.videosSource = 'page'; next.lastVideosAt = nowIso; }
         }
       }
     } else {
@@ -308,7 +325,7 @@ export class YouTubeMonitor {
       const pl = await this.api('playlistItems', {
         part: 'contentDetails',
         playlistId: uploadsPlaylistId(this.opts.channelId),
-        maxResults: String(Math.min(50, max + 8)),
+        maxResults: '50',
       });
       const ids = new Set<string>((pl.items ?? []).map((i: any) => i?.contentDetails?.videoId).filter(Boolean));
 
@@ -359,11 +376,15 @@ export class YouTubeMonitor {
           ? Number(lives[0].liveStreamingDetails.concurrentViewers) : null,
       } : null;
 
-      const videos = details
+      // Mesma separação das abas do YouTube: transmissão encerrada → "Ao vivo"; o resto → "Vídeos"
+      const published = details
         .filter((v) => v.snippet?.liveBroadcastContent === 'none' && v.status?.privacyStatus !== 'private')
-        .sort((a, b) => String(b.snippet?.publishedAt).localeCompare(String(a.snippet?.publishedAt)))
-        .slice(0, max)
-        .map(toItem);
+        .sort((a, b) => String(b.snippet?.publishedAt).localeCompare(String(a.snippet?.publishedAt)));
+      const catalogs: Catalogs = {
+        videos: published.filter((v) => !v.liveStreamingDetails).slice(0, max).map(toItem),
+        streams: published.filter((v) => v.liveStreamingDetails).slice(0, max).map(toItem),
+      };
+      const videos = mergeCatalogs(catalogs, max);
 
       this.liveConfirmedAt = nowIso;
       return {
@@ -371,6 +392,7 @@ export class YouTubeMonitor {
         live,
         liveCheck: 'ok' as LiveCheckStatus,
         videos,
+        catalogs,
         videosSource: 'api',
         lastLiveCheckAt: nowIso,
         lastVideosAt: nowIso,
@@ -390,12 +412,13 @@ export class YouTubeMonitor {
       };
       try {
         next.videos = await this.fetchRss();
+        next.catalogs = { videos: next.videos, streams: [] };
         next.videosSource = 'rss';
         next.lastVideosAt = nowIso;
       } catch {
         try {
           const page = await this.fetchFromPages();
-          if (page.videos.length) { next.videos = page.videos; next.videosSource = 'page'; next.lastVideosAt = nowIso; }
+          if (page.videos.length) { next.videos = page.videos; next.catalogs = page.catalogs; next.videosSource = 'page'; next.lastVideosAt = nowIso; }
         } catch { /* mantém a última lista conhecida */ }
       }
       return next;

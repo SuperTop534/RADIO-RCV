@@ -28,7 +28,8 @@ const yt = new YouTubeMonitor({
   apiKey: env('YOUTUBE_API_KEY'),
   channelId: env('YOUTUBE_CHANNEL_ID', 'UCUhM7X3log3z56SWCoEWgSg'),
   channelUrl: 'https://www.youtube.com/@rcvestudioradio4570',
-  maxVideos: Math.min(Number(env('YOUTUBE_MAX_VIDEOS', '24')) || 24, 50),
+  // por catálogo (Vídeos e Ao vivo): a página do canal traz cerca de 30 de cada
+  maxVideos: Math.min(Number(env('YOUTUBE_MAX_VIDEOS', '30')) || 30, 50),
   clientPollSeconds: Number(env('CLIENT_POLL_SECONDS', '60')) || 60,
   livePollMinutes: 10,
   nextDailyCheck: () => nextDailyOccurrence(env('LIVE_DAILY_CHECK_TIME', '18:00'), env('TIMEZONE', 'America/Sao_Paulo')),
@@ -44,7 +45,7 @@ if (state.videos.length === 0 && previousUrl) {
     if (res.ok) {
       const prev = (await res.json()) as YouTubeState;
       if (Array.isArray(prev.videos) && prev.videos.length) {
-        state = { ...state, videos: prev.videos, videosSource: prev.videosSource, lastVideosAt: prev.lastVideosAt };
+        state = { ...state, videos: prev.videos, catalogs: prev.catalogs, videosSource: prev.videosSource, lastVideosAt: prev.lastVideosAt };
         console.log(`[robô] usando a lista anterior (${prev.videos.length} vídeos)`);
       }
     }
@@ -72,11 +73,11 @@ if (state.videosSource === 'none' || state.liveCheck === 'error') {
 
 fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
 fs.writeFileSync(out, JSON.stringify({ ...state, diagnostics }));
-fs.writeFileSync(path.join(path.dirname(path.resolve(out)), 'diagnostico.json'), JSON.stringify({ ...diagnostics, videos: state.videos.length, fonte: state.videosSource, live: state.liveCheck }, null, 2));
+fs.writeFileSync(path.join(path.dirname(path.resolve(out)), 'diagnostico.json'), JSON.stringify({ ...diagnostics, catalogoVideos: state.catalogs?.videos.length ?? 0, catalogoAoVivo: state.catalogs?.streams.length ?? 0, videos: state.videos.length, fonte: state.videosSource, live: state.liveCheck }, null, 2));
 console.log('[robô] diagnóstico:', diagnostics);
 // Resumo visível na página da execução do GitHub Actions (Annotations)
 if (process.env.GITHUB_ACTIONS) {
-  const resumo = `${state.videos.length} vídeos (fonte: ${state.videosSource}) | live: ${state.live ? `AO VIVO - ${state.live.title}` : 'nenhuma'} | verificação de live: ${state.liveCheck}`;
+  const resumo = `Vídeos: ${state.catalogs?.videos.length ?? 0} | Ao vivo: ${state.catalogs?.streams.length ?? 0} (fonte: ${state.videosSource}) | live: ${state.live ? `AO VIVO - ${state.live.title}` : 'nenhuma'} | verificação de live: ${state.liveCheck}`;
   console.log(`::notice title=Robô do YouTube::${resumo.replace(/\r?\n/g, ' ')}`);
 }
 console.log(JSON.stringify({

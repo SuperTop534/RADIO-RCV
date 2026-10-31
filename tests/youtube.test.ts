@@ -65,6 +65,33 @@ test('sem chave: lê a página do canal, detecta a live e ordena do mais novo', 
   assert.ok(!s.videos.some((v) => v.id === 'next1xxxxxx'), 'live agendada não entra');
 });
 
+test('catálogos separados: aba Vídeos e aba Ao vivo, cada uma na ordem do YouTube', async () => {
+  const yt = makeMonitor('', async (url) => res(200, url.endsWith('/streams') ? STREAMS_PAGE : VIDEOS_PAGE));
+  const s = await yt.refresh({ force: true });
+  assert.deepEqual(s.catalogs?.videos.map((v) => v.id), ['v1aaaaaaaaa', 'v2bbbbbbbbb']);
+  assert.deepEqual(s.catalogs?.streams.map((v) => v.id), ['old1xxxxxxx'], 'sem a live atual e sem a agendada');
+});
+
+test('live que aparece só na aba Vídeos também vai para o topo', async () => {
+  const VIDEOS_WITH_LIVE = pageHtml({ items: [
+    { videoRenderer: { videoId: 'livevid0001', title: { runs: [{ text: 'Culto ao vivo' }] }, badges: [{ metadataBadgeRenderer: { style: 'BADGE_STYLE_TYPE_LIVE_NOW' } }] } },
+    { videoRenderer: { videoId: 'v1aaaaaaaaa', title: { runs: [{ text: 'Vídeo' }] }, publishedTimeText: { simpleText: 'há 1 dia' } } },
+  ] });
+  const yt = makeMonitor('', async (url) => res(200, url.endsWith('/streams') ? pageHtml({}) : VIDEOS_WITH_LIVE));
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.live?.id, 'livevid0001');
+  assert.equal(s.liveCheck, 'ok');
+  assert.deepEqual(s.catalogs?.videos.map((v) => v.id), ['v1aaaaaaaaa'], 'a live não se repete na lista');
+});
+
+test('uma aba fora do ar: a outra aparece, mas a live não é dada como verificada', async () => {
+  const yt = makeMonitor('', async (url) => (url.endsWith('/streams') ? res(500, 'erro') : res(200, VIDEOS_PAGE)));
+  const s = await yt.refresh({ force: true });
+  assert.equal(s.catalogs?.videos.length, 2);
+  assert.equal(s.catalogs?.streams.length, 0);
+  assert.equal(s.liveCheck, 'unconfigured');
+});
+
 test('sem chave e sem live na página: live fica vazia', async () => {
   const yt = makeMonitor('', async (url) => res(200, url.endsWith('/streams') ? pageHtml({}) : VIDEOS_PAGE));
   const s = await yt.refresh({ force: true });
@@ -100,6 +127,8 @@ test('com chave: live ativa vira destaque e sai da lista de vídeos', async () =
   assert.equal(s.live?.id, 'live1');
   assert.equal(s.live?.concurrentViewers, 57);
   assert.deepEqual(s.videos.map((v) => v.id), ['old1']);
+  assert.deepEqual(s.catalogs?.videos.map((v) => v.id), ['old1'], 'vídeo comum vai para o catálogo Vídeos');
+  assert.deepEqual(s.catalogs?.streams, []);
   assert.equal(s.videos[0].embeddable, false);
   assert.ok(calls.every((u) => !u.includes('key=') || u.includes('key=KEY')));
   assert.ok(calls.some((u) => u.includes('eventType=live')), 'verificação completa usa search.list');
@@ -143,4 +172,20 @@ test('consultas simultâneas viram uma só', async () => {
   const yt = makeMonitor('', async (url) => { n++; await new Promise((r) => setTimeout(r, 20)); return res(200, url.endsWith('/streams') ? STREAMS_PAGE : VIDEOS_PAGE); });
   await Promise.all([yt.refresh({ force: true }), yt.refresh({ force: true }), yt.ensureFresh(0)]);
   assert.equal(n, 2, 'uma rodada = abas Vídeos + Ao vivo');
+});
+
+test('com chave: transmissão encerrada vai para "Ao vivo", vídeo comum para "Vídeos"', async () => {
+  const yt = makeMonitor('KEY', async (url) => {
+    if (url.includes('/playlistItems')) return res(200, { items: [{ contentDetails: { videoId: 'past1' } }, { contentDetails: { videoId: 'vid1' } }] });
+    if (url.includes('/videos')) return res(200, { items: [
+      { id: 'past1', snippet: { title: 'Live de domingo', publishedAt: '2026-10-26T21:00:00Z', liveBroadcastContent: 'none' },
+        liveStreamingDetails: { actualStartTime: '2026-10-26T21:00:00Z', actualEndTime: '2026-10-26T23:00:00Z' }, status: { privacyStatus: 'public', embeddable: true } },
+      { id: 'vid1', snippet: { title: 'Clipe', publishedAt: '2026-10-20T10:00:00Z', liveBroadcastContent: 'none' }, status: { privacyStatus: 'public', embeddable: true } },
+    ] });
+    return res(500, {});
+  });
+  const s = await yt.refresh({ force: true });
+  assert.deepEqual(s.catalogs?.streams.map((v) => v.id), ['past1']);
+  assert.deepEqual(s.catalogs?.videos.map((v) => v.id), ['vid1']);
+  assert.deepEqual(s.videos.map((v) => v.id), ['past1', 'vid1']);
 });

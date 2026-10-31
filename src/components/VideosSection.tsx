@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { LiveInfo, VideoItem } from '../../shared/types.ts';
+import type { LiveInfo, VideoItem, YouTubeState } from '../../shared/types.ts';
 import { useYouTube } from '../hooks/useStores.ts';
 import { youtube, CHANNEL_URL } from '../services/youtube.ts';
 import { radio } from '../services/radioInstance.ts';
@@ -9,6 +9,24 @@ import { IconExternal, IconInfo, IconRefresh } from './Icons.tsx';
 
 const timeFmt = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
 
+/** Os dois catálogos do canal, na mesma ordem das abas do YouTube. */
+export type CatalogId = 'videos' | 'streams';
+const CATALOGS: { id: CatalogId; label: string; empty: string }[] = [
+  { id: 'videos', label: 'Vídeos', empty: 'Nenhum vídeo publicado no catálogo Vídeos.' },
+  { id: 'streams', label: 'Ao vivo', empty: 'Nenhuma transmissão encerrada no catálogo Ao vivo.' },
+];
+const CATALOG_KEY = 'rcv:catalogo';
+
+/** Dados antigos (sem catálogos) caem inteiros em "Vídeos". */
+export function catalogsOf(data: YouTubeState | null): Record<CatalogId, VideoItem[]> {
+  if (!data) return { videos: [], streams: [] };
+  return data.catalogs ?? { videos: data.videos ?? [], streams: [] };
+}
+
+function readCatalog(): CatalogId {
+  try { return localStorage.getItem(CATALOG_KEY) === 'streams' ? 'streams' : 'videos'; } catch { return 'videos'; }
+}
+
 /**
  * Lives e vídeos do canal. `embedded` = exibida abaixo da rádio na tela inicial.
  * Tudo é assistido aqui mesmo (player incorporado), sem sair para o YouTube.
@@ -17,6 +35,7 @@ export function VideosSection({ notify, embedded = false }: { notify: (msg: stri
   const { data, loading, error, fromCache } = useYouTube();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoStartId, setAutoStartId] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<CatalogId>(readCatalog);
 
   // Ao abrir a aba, atualiza se os dados estiverem desatualizados
   useEffect(() => {
@@ -24,11 +43,18 @@ export function VideosSection({ notify, embedded = false }: { notify: (msg: stri
   }, []);
 
   const live = data?.live ?? null;
-  const videos = data?.videos ?? [];
+  const catalogs = useMemo(() => catalogsOf(data), [data]);
+  const videos = catalogs[catalog];
   const selected: VideoItem | LiveInfo | null = useMemo(() => {
-    if (selectedId) return (live?.id === selectedId ? live : videos.find((v) => v.id === selectedId)) ?? null;
-    return live;
-  }, [selectedId, live, videos]);
+    if (!selectedId) return live;
+    if (live?.id === selectedId) return live;
+    return catalogs.videos.find((v) => v.id === selectedId) ?? catalogs.streams.find((v) => v.id === selectedId) ?? null;
+  }, [selectedId, live, catalogs]);
+
+  const chooseCatalog = (id: CatalogId) => {
+    setCatalog(id);
+    try { localStorage.setItem(CATALOG_KEY, id); } catch { /* ignore */ }
+  };
 
   const onStartWatching = () => {
     if (radio.isActive) {
@@ -101,7 +127,7 @@ export function VideosSection({ notify, embedded = false }: { notify: (msg: stri
       ) : (
         <>
           <div className="list-head">
-            <h2 className="list-title">{live ? 'Vídeos publicados' : 'Últimos vídeos'}</h2>
+            <CatalogTabs current={catalog} counts={{ videos: catalogs.videos.length, streams: catalogs.streams.length }} onChange={chooseCatalog} />
             {updated && (
               <span className="list-meta">
                 {fromCache && !youtube.getSnapshot().fetchedAt ? 'Salvo em ' : 'Atualizado às '}
@@ -109,10 +135,12 @@ export function VideosSection({ notify, embedded = false }: { notify: (msg: stri
               </span>
             )}
           </div>
-          <VideoList videos={videos} selectedId={selected?.id ?? null} onSelect={select} loading={loading && !data} />
+          <div id={`catalogo-${catalog}`} role="tabpanel" aria-labelledby={`cat-${catalog}`} key={catalog} className="catalog-panel">
+            <VideoList videos={videos} selectedId={selected?.id ?? null} onSelect={select} loading={loading && !data} />
+          </div>
           {data && videos.length === 0 && !loading && (
             <div className="empty glass">
-              <p>Nenhum vídeo disponível no momento.</p>
+              <p>{CATALOGS.find((c) => c.id === catalog)?.empty}</p>
               <a className="btn btn--glass" href={CHANNEL_URL} target="_blank" rel="noopener noreferrer">Ver canal no YouTube <IconExternal /></a>
             </div>
           )}
@@ -125,5 +153,48 @@ export function VideosSection({ notify, embedded = false }: { notify: (msg: stri
         <IconExternal />
       </a>
     </section>
+  );
+}
+
+/** Seletor dos catálogos "Vídeos" e "Ao vivo" (como as abas do canal no YouTube). */
+function CatalogTabs({ current, counts, onChange }: {
+  current: CatalogId;
+  counts: Record<CatalogId, number>;
+  onChange: (id: CatalogId) => void;
+}) {
+  const index = CATALOGS.findIndex((c) => c.id === current);
+  return (
+    <div
+      className="cattabs glass"
+      role="tablist"
+      aria-label="Catálogos do canal"
+      style={{ ['--i' as string]: index }}
+      onKeyDown={(e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        e.preventDefault();
+        const next = CATALOGS[(index + 1) % CATALOGS.length];
+        onChange(next.id);
+        document.getElementById(`cat-${next.id}`)?.focus();
+      }}
+    >
+      <span className="cattabs__pill" aria-hidden="true" />
+      {CATALOGS.map((c) => (
+        <button
+          key={c.id}
+          id={`cat-${c.id}`}
+          type="button"
+          role="tab"
+          aria-selected={current === c.id}
+          aria-controls={`catalogo-${c.id}`}
+          tabIndex={current === c.id ? 0 : -1}
+          className={`cattabs__btn ${current === c.id ? 'is-active' : ''}`}
+          onClick={() => onChange(c.id)}
+        >
+          {c.id === 'streams' && <span className="cattabs__dot" aria-hidden="true" />}
+          {c.label}
+          <span className="cattabs__count">{counts[c.id]}</span>
+        </button>
+      ))}
+    </div>
   );
 }

@@ -23,12 +23,26 @@ export type LiveCheckStatus =
   /** A API falhou (cota, rede, etc.); dados podem estar desatualizados */
   | 'error';
 
+/**
+ * Os dois catálogos do canal, como as abas do YouTube:
+ *  - videos:  aba "Vídeos" (vídeos enviados)
+ *  - streams: aba "Ao vivo" (transmissões já encerradas)
+ * Cada um na ordem do YouTube: do mais novo para o mais antigo.
+ */
+export interface Catalogs {
+  videos: VideoItem[];
+  streams: VideoItem[];
+}
+
 export interface YouTubeState {
   channelId: string;
   channelUrl: string;
   live: LiveInfo | null;
   liveCheck: LiveCheckStatus;
+  /** lista combinada (compatibilidade com versões anteriores do app) */
   videos: VideoItem[];
+  /** catálogos separados; ausente em dados antigos */
+  catalogs?: Catalogs;
   videosSource: 'api' | 'rss' | 'page' | 'none';
   /** ISO da última verificação bem-sucedida de live (ou null) */
   lastLiveCheckAt: string | null;
