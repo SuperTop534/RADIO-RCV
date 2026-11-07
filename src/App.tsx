@@ -5,6 +5,7 @@ import { RadioPlayer } from './components/RadioPlayer.tsx';
 import { MiniPlayer } from './components/MiniPlayer.tsx';
 import { VideosSection } from './components/VideosSection.tsx';
 import { ChatRCV } from './components/ChatRCV.tsx';
+import { Partners } from './components/Partners.tsx';
 import { Toast, useToast } from './components/Toast.tsx';
 import { InstallPrompt } from './components/InstallPrompt.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
@@ -13,7 +14,7 @@ import { youtube } from './services/youtube.ts';
 import { loadPublicConfig } from './services/radioInstance.ts';
 import { DEFAULT_WHATSAPP_NUMBER } from './services/whatsapp.ts';
 
-const HASH: Record<string, Tab> = { '#inicio': 'inicio', '#videos': 'videos', '#chat': 'chat' };
+const HASH: Record<string, Tab> = { '#inicio': 'inicio', '#parceiros': 'parceiros', '#videos': 'videos', '#chat': 'chat' };
 const tabFromHash = (): Tab => HASH[window.location.hash] ?? 'inicio';
 
 export function App() {
@@ -80,6 +81,7 @@ export function App() {
                 <VideosSection notify={notify} />
               </ErrorBoundary>
             )}
+            {tab === 'parceiros' && <Partners />}
             {tab === 'chat' && (
               <ErrorBoundary fallback="Não foi possível exibir o CHAT RCV agora.">
                 <ChatRCV number={waNumber} />

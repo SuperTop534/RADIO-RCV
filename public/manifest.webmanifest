@@ -53,6 +53,16 @@
       ]
     },
     {
+      "name": "Parceiros",
+      "url": "./#parceiros",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Vídeos",
       "url": "./#videos",
       "icons": [

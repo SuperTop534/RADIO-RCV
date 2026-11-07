@@ -182,10 +182,10 @@ a { color: inherit; }
   padding: 5px;
   max-width: 520px; margin: 0 auto;
 }
-.tabbar__inner { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); height: 100%; }
+.tabbar__inner { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); height: 100%; }
 .tabbar__pill {
   position: absolute; top: 0; bottom: 0; left: 0;
-  width: calc(100% / 3);
+  width: calc(100% / 4);
   border-radius: 21px;
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.08));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 rgba(255, 255, 255, 0.08), 0 6px 18px rgba(0, 0, 0, 0.3);
@@ -687,7 +687,7 @@ a { color: inherit; }
   .topbar, .shell--inicio .topbar { padding: 22px 28px 0; position: relative; z-index: 40; }
   .shell--inicio .topbar__brand { display: inline-flex; visibility: hidden; }
   .tabbar {
-    position: static; width: 420px; height: var(--nav-h); margin: 0; border-radius: 20px; left: auto; right: auto;
+    position: static; width: 540px; height: var(--nav-h); margin: 0; border-radius: 20px; left: auto; right: auto;
   }
   .tabbar__pill { border-radius: 15px; }
   .tabbar__btn { flex-direction: row; gap: 8px; font-size: 14px; border-radius: 15px; }
@@ -844,3 +844,20 @@ a { color: inherit; }
 }
 /* miniatura encaixada sem o aro escuro de fundo */
 .vcard__thumb { background: transparent; }
+
+/* ---------- Parceiros ---------- */
+.main--parceiros { padding-bottom: calc(var(--nav-h) + var(--mini-h) + var(--safe-b) + 44px); }
+.partners { max-width: 860px; margin: 0 auto; }
+.partners__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+.partners__item {
+  border-radius: var(--r-md); overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  background: rgba(22, 23, 30, 0.8);
+  isolation: isolate; -webkit-mask-image: -webkit-radial-gradient(white, black);
+  animation: panelIn 0.5s var(--ease-out) both; animation-delay: calc(var(--n, 0) * 60ms);
+}
+.partners__item img { width: 100%; height: auto; aspect-ratio: 1600 / 639; object-fit: cover; }
+@media (min-width: 640px) { .partners__list { gap: 22px; } }
+/* 4 abas: rótulos um pouco menores no celular estreito */
+@media (max-width: 400px) { .tabbar__btn { font-size: 10.5px; letter-spacing: 0; } }

@@ -1,10 +1,11 @@
 import { useRef, type KeyboardEvent } from 'react';
-import { IconChat, IconRadio, IconVideo } from './Icons.tsx';
+import { IconChat, IconPartners, IconRadio, IconVideo } from './Icons.tsx';
 
-export type Tab = 'inicio' | 'videos' | 'chat';
+export type Tab = 'inicio' | 'parceiros' | 'videos' | 'chat';
 
 export const TABS: { id: Tab; label: string; Icon: typeof IconRadio }[] = [
   { id: 'inicio', label: 'Início', Icon: IconRadio },
+  { id: 'parceiros', label: 'Parceiros', Icon: IconPartners },
   { id: 'videos', label: 'Vídeos', Icon: IconVideo },
   { id: 'chat', label: 'CHAT RCV', Icon: IconChat },
 ];
